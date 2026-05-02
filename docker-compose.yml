@@ -1,0 +1,41 @@
+services:
+
+  espaco:
+    build: ./espaco
+    hostname: espaco
+    expose:
+      - "6000"
+    networks:
+      - rede-tuplas
+
+  produtor:
+    build: ./produtor
+    depends_on:
+      - espaco
+    networks:
+      - rede-tuplas
+
+  consumidor-a:
+    build: ./consumidor-a
+    depends_on:
+      - espaco
+    networks:
+      - rede-tuplas
+
+  consumidor-b:
+    build: ./consumidor-b
+    depends_on:
+      - espaco
+    networks:
+      - rede-tuplas
+
+  leitor:
+    build: ./leitor
+    depends_on:
+      - espaco
+    networks:
+      - rede-tuplas
+
+networks:
+  rede-tuplas:
+    driver: bridge
