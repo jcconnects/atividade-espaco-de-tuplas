@@ -221,7 +221,7 @@ docker compose up --scale consumidor=2
 
 ### Modificação A — Prioridade de tarefas (guiada)
 
-O arquivo `produtor/tarefas.json` contém a lista de tarefas com seus campos, incluindo `prioridade`. Atualmente o consumidor retira qualquer tarefa disponível, independente da prioridade.
+As tarefas estão definidas em `Produtor.java` (array `TAREFAS`), com campos `id`, `tipo` e `prioridade`. Atualmente o consumidor retira qualquer tarefa disponível, independente da prioridade.
 
 Abra `consumidor/config.properties` e altere o valor:
 
@@ -253,16 +253,7 @@ O arquivo `monitor/Monitor.java` está parcialmente implementado. Localize o com
 // TODO: use read() ou take() aqui — qual você deve usar e por quê?
 ```
 
-Preencha a lacuna com a operação correta e adicione o serviço no `docker-compose.yml`:
-
-```yaml
-monitor:
-  build: ./monitor
-  depends_on:
-    - javaspaces
-  networks:
-    - rede-tuplas
-```
+Preencha a lacuna com a operação correta e descomente o bloco `monitor` no `docker-compose.yml` (ele já está lá, comentado).
 
 Execute e verifique se o monitor exibe contagens sem interferir no processamento das tarefas.
 

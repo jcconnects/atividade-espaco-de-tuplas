@@ -38,9 +38,8 @@ services:
   # Para escalar: docker compose up --scale consumidor=2
   consumidor:
     build: ./consumidor
-    hostname: consumidor
     environment:
-      - NOME_CONSUMIDOR=CONSUMIDOR
+      - NOME_CONSUMIDOR=CONSUMIDOR-${HOSTNAME:-1}
     depends_on:
       - javaspaces
     networks:

@@ -20,7 +20,6 @@ public class Consumidor {
 
     private static final String REGGIE_HOST = "reggie";
     private static final long TIMEOUT_ALTA_PRIO = 2000; // ms de espera por tarefa de alta prioridade
-    private static final long TIMEOUT_QUALQUER   = JavaSpace.NO_WAIT; // tenta imediatamente
 
     public static void main(String[] args) throws Exception {
         System.setProperty("java.security.policy", "security.policy");

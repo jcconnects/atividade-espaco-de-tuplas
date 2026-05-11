@@ -47,7 +47,12 @@ public class Monitor {
         //   TaskEntry encontrada = (TaskEntry) space.???(template, null, 0);
         //
         // Use timeout = 0 (JavaSpace.NO_WAIT) para não bloquear quando não houver mais entradas.
-        // Use um Set para rastrear ids já vistos e evitar contar a mesma tupla duas vezes.
+        //
+        // Atenção: read() com timeout=0 pode retornar a mesma entrada mais de uma vez —
+        // o Outrigger não garante ordem nem variedade entre chamadas sucessivas.
+        // Para contar corretamente, você precisaria de um campo id único por tarefa
+        // e rastrear quais ids já foram vistos. Esse problema não tem solução limpa
+        // com a API pura do espaço de tuplas — é justamente a limitação que o Nível 2B explora.
 
         TaskEntry encontrada = null; // ← substitua esta linha
 
