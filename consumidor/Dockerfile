@@ -12,16 +12,15 @@ RUN wget -q ${MAVEN}/net/jini/jsk-platform/${RIVER_VERSION}/jsk-platform-${RIVER
     wget -q ${MAVEN}/org/apache/river/outrigger-dl/${RIVER_VERSION}/outrigger-dl-${RIVER_VERSION}.jar -O outrigger-dl.jar && \
     wget -q ${MAVEN}/org/apache/river/reggie-dl/${RIVER_VERSION}/reggie-dl-${RIVER_VERSION}.jar -O reggie-dl.jar
 
-COPY src/TaskEntry.java src/TaskEntry.java
-COPY src/Produtor.java  src/Produtor.java
+COPY src/TaskEntry.java  src/TaskEntry.java
+COPY src/Consumidor.java src/Consumidor.java
 
 RUN mkdir -p classes && \
     javac -cp jsk-platform.jar:jsk-lib.jar:outrigger-dl.jar:reggie-dl.jar \
           -d classes \
           src/TaskEntry.java \
-          src/Produtor.java
+          src/Consumidor.java
 
-# ── runtime stage ──────────────────────────────────────────────────────────────
 FROM eclipse-temurin:8-jre
 
 WORKDIR /app
@@ -34,6 +33,7 @@ COPY --from=build /app/outrigger-dl.jar   .
 COPY --from=build /app/reggie-dl.jar      .
 COPY --from=build /app/classes            classes/
 COPY security.policy .
+COPY config.properties .
 COPY start.sh .
 RUN chmod +x start.sh
 

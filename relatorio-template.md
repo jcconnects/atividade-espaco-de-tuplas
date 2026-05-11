@@ -1,4 +1,4 @@
-# Relatório — Atividade Prática: Espaço de Tuplas
+# Relatório — Atividade Prática: Espaço de Tuplas com Apache River
 
 **Disciplina:**
 **Dupla:** /
@@ -6,75 +6,109 @@
 
 ---
 
-## Nível 1 — Inspecionar o código
+## Nível 0 — Rodar e observar
 
-### 1.1 As três operações do espaço de tuplas
+### Observação inicial
 
-Preencha a tabela com base na leitura de `espaco/espaco.py`:
-
-| Operação | O que ela faz? | Bloqueia quando não encontra correspondência? | Altera o estado do espaço? |
-|----------|----------------|----------------------------------------------|---------------------------|
-| `OUT(tupla)` | | | |
-| `IN(padrão)` | | | |
-| `RD(padrão)` | | | |
-
-### 1.2 Mecanismo de bloqueio
-
-Qual classe do módulo `threading` é responsável pelo bloqueio em `IN` e `RD`?
+1. Qual serviço aparece nos logs primeiro? Por que ele precisa existir antes dos outros?
 
 > _Resposta:_
 
-O que o método `.wait()` faz nesse contexto?
+2. O produtor menciona o nome ou o endereço do consumidor em algum momento? O consumidor menciona o produtor?
 
 > _Resposta:_
 
-O que o método `.notify_all()` faz, e quem o chama?
+3. O consumidor começa a processar tarefas antes que o produtor termine de depositar todas? O que isso diz sobre como os dois se coordenam?
 
 > _Resposta:_
 
-### 1.3 Casamento de padrões
+---
 
-O que significa `None` em uma posição do padrão?
+### Experimento de desacoplamento temporal
 
-> _Resposta:_
-
-O padrão `["tarefa", "processar", None]` casa com a tupla `["tarefa", "processar", 7]`? Por quê?
+4. O consumidor encontrou as tarefas mesmo sendo iniciado depois que o produtor já havia encerrado? O que isso demonstra?
 
 > _Resposta:_
 
-O padrão `["tarefa", "processar", None]` casa com a tupla `["tarefa", "entregar", 3]`? Por quê?
+5. Em comunicação direta via socket, seria possível esse comportamento? Por quê não?
 
 > _Resposta:_
 
-### 1.4 Desacoplamento espacial
+---
 
-O produtor tem alguma variável que aponta diretamente para um consumidor? Os consumidores têm alguma variável que aponta para o produtor?
+## Nível 1 — Inspecionar
+
+### 1.1 As três operações
+
+Preencha a tabela com base no que você observou nos logs:
+
+| Operação River | Equivalente Linda | O que ela faz? | Bloqueia quando não encontra correspondência? | Altera o estado do espaço? |
+|---------------|-------------------|----------------|----------------------------------------------|---------------------------|
+| `write(entry)` | `OUT` | | | |
+| `take(template)` | `IN` | | | |
+| `read(template)` | `RD` | | | |
+
+---
+
+### 1.2 O papel do `reggie`
+
+1. Quando o `reggie` caiu, os serviços que já estavam conectados ao espaço continuaram funcionando? Por quê?
 
 > _Resposta:_
 
-Como eles se coordenam, então?
+2. O que aconteceria com um produtor ou consumidor que tentasse iniciar enquanto o `reggie` estivesse fora do ar?
 
 > _Resposta:_
 
-### 1.5 Experimentos dirigidos
+3. Qual sistema moderno cumpre papel equivalente ao `reggie` em uma arquitetura de microsserviços?
 
-**Experimento 1 — Remover consumidor-b:**
+> _Resposta:_
 
-O que aconteceu com as tarefas após comentar o `consumidor-b`? Alguma tarefa se perdeu?
+---
+
+### 1.3 Desacoplamento espacial
+
+1. O produtor tem qualquer informação sobre quantos consumidores existem?
+
+> _Resposta:_
+
+2. O consumidor tem qualquer informação sobre quem produziu a tarefa que ele retirou?
+
+> _Resposta:_
+
+3. Como produtor e consumidor se coordenam se não se conhecem?
+
+> _Resposta:_
+
+---
+
+### 1.4 Comportamento de bloqueio
+
+1. O que o consumidor fez enquanto o espaço estava vazio?
 
 > _Observado:_
 
-O que isso revela sobre o papel do espaço de tuplas em relação ao acoplamento temporal (produtor e consumidor precisam estar ativos ao mesmo tempo)?
-
-> _Resposta:_
-
-**Experimento 2 — Produtor rápido, consumidor lento:**
-
-Descreva o estado do espaço enquanto o produtor publica todas as tarefas antes que os consumidores as retirem:
+2. Quando o produtor depositou a primeira tarefa, o que aconteceu imediatamente?
 
 > _Observado:_
 
-O espaço de tuplas se comportou como um _buffer_? Explique.
+3. Esse comportamento tem nome no modelo Linda. Qual é e por que ele é útil em sistemas distribuídos reais?
+
+> _Resposta:_
+
+---
+
+### 1.5 Escalabilidade horizontal
+
+1. Uma mesma tarefa foi processada por dois consumidores ao mesmo tempo?
+
+> _Observado:_
+
+2. O produtor precisou ser modificado para suportar dois consumidores?
+
+> _Resposta:_
+
+3. Esse comportamento tem um nome em arquitetura de sistemas. Qual é?
 
 > _Resposta:_
 
@@ -84,57 +118,47 @@ O espaço de tuplas se comportou como um _buffer_? Explique.
 
 ### 2.1 Modificação A — Prioridade de tarefas
 
-Descreva as mudanças que você fez no `consumidor.py` para dar suporte a prioridades:
-
-> _O que foi alterado e por quê:_
-
-Cole um trecho dos logs que evidencia que as tarefas de alta prioridade foram processadas antes das de baixa prioridade:
+1. As tarefas de prioridade alta foram processadas antes das de prioridade baixa? Cole um trecho dos logs que evidencie isso:
 
 ```
 (cole o trecho de log aqui)
 ```
 
-Como você lidou com a ausência de um `IN` com timeout no protocolo Linda? Que solução adotou?
+2. O produtor precisou ser modificado para que isso funcionasse?
 
 > _Resposta:_
 
-### 2.2 Modificação B — Serviço monitor
-
-Por que você usou `RD` e não `IN` no monitor?
+3. Como o consumidor consegue selecionar apenas tarefas de uma prioridade específica? Qual mecanismo do espaço de tuplas torna isso possível?
 
 > _Resposta:_
-
-Como você resolveu (ou tentou resolver) o problema de contar tuplas usando apenas `RD`? O que ficou faltando?
-
-> _Resposta:_
-
-Cole o código do `monitor/monitor.py` que você criou:
-
-```python
-
-```
 
 ---
 
-## Conexão com sistemas modernos
+### 2.2 Modificação B — Serviço monitor
 
-Cite dois sistemas de mensageria modernos que implementam o padrão de desacoplamento espacial observado nesta atividade:
-
-> _Resposta:_
-
-Qual operação do espaço de tuplas é análoga ao "publish" nesses sistemas?
+1. Qual operação você usou no monitor — `read()` ou `take()`? Por quê a outra seria problemática?
 
 > _Resposta:_
 
-Qual a principal diferença prática entre o espaço de tuplas que você implementou e um broker como o RabbitMQ ou o Kafka?
+2. Como você contou as tarefas pendentes usando apenas `read()`? Que limitação isso revela?
 
 > _Resposta:_
+
+3. Por que um espaço de tuplas puro não tem operação `count()`? O que seria necessário adicionar ao modelo para suportá-la?
+
+> _Resposta:_
+
+Cole o trecho do `Monitor.java` que você completou:
+
+```java
+// trecho relevante aqui
+```
 
 ---
 
 ## Observações livres
 
-_(Comportamentos inesperados, erros encontrados, dificuldades técnicas)_
+_(Comportamentos inesperados, erros encontrados, dificuldades técnicas — descreva o que aconteceu e como você resolveu)_
 
 >
 

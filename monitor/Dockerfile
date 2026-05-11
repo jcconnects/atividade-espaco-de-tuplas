@@ -13,15 +13,14 @@ RUN wget -q ${MAVEN}/net/jini/jsk-platform/${RIVER_VERSION}/jsk-platform-${RIVER
     wget -q ${MAVEN}/org/apache/river/reggie-dl/${RIVER_VERSION}/reggie-dl-${RIVER_VERSION}.jar -O reggie-dl.jar
 
 COPY src/TaskEntry.java src/TaskEntry.java
-COPY src/Produtor.java  src/Produtor.java
+COPY src/Monitor.java   src/Monitor.java
 
 RUN mkdir -p classes && \
     javac -cp jsk-platform.jar:jsk-lib.jar:outrigger-dl.jar:reggie-dl.jar \
           -d classes \
           src/TaskEntry.java \
-          src/Produtor.java
+          src/Monitor.java
 
-# ── runtime stage ──────────────────────────────────────────────────────────────
 FROM eclipse-temurin:8-jre
 
 WORKDIR /app

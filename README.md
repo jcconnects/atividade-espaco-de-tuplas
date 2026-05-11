@@ -1,4 +1,4 @@
-# Atividade Prática: Espaço de Tuplas
+# Atividade Prática: Espaço de Tuplas com Apache River
 
 ## Pré-requisitos
 
@@ -10,13 +10,21 @@ Verifique com:
 docker compose version
 ```
 
+Nenhuma instalação de Java é necessária — o JDK 8 e todas as dependências do Apache River estão dentro dos contêineres.
+
+---
+
+## Material Teórico
+
+Os slides do professor são a fonte principal e podem ser encontrados no Moodle da disciplina; o [arquivo de contexto teórico](./contexto-teorico.md) é um complemento.
+
 ---
 
 ## Contexto histórico
 
-Em 1985, David Gelernter propôs a linguagem de coordenação **Linda**, que introduziu o conceito de **espaço de tuplas** (*tuple space*): uma memória associativa compartilhada onde processos depositam e retiram tuplas sem se conhecerem diretamente. Um processo que escreve uma tupla não sabe quem vai lê-la; um processo que lê uma tupla não sabe quem a escreveu. A única coisa compartilhada é o **espaço** — daí o nome *desacoplamento espacial*.
+Em 1985, David Gelernter propôs o modelo de **espaço de tuplas**: uma memória associativa compartilhada onde processos depositam e retiram dados sem se conhecerem diretamente. Em 1999, a Sun Microsystems materializou esse modelo no **JavaSpaces**, parte do projeto Jini. O **Apache River** é o sucessor direto desse trabalho — um sistema de middleware distribuído que foi usado em produção em sistemas reais.
 
-Esse modelo simples e poderoso está na origem de sistemas que você provavelmente já ouviu falar: **RabbitMQ**, **Apache Kafka**, **Redis Streams** e **Google Pub/Sub**. Nesta atividade, você vai construir esse mecanismo do zero, entender como ele funciona por dentro, e no final traçar o caminho da Linda até esses sistemas modernos.
+Esta atividade coloca você em contato com uma ferramenta histórica real. O ambiente requer Docker porque Apache River não é um processo único: ele depende de múltiplos serviços coordenados, com ordem de inicialização e rede compartilhada. Você vai ver essa complexidade de infraestrutura como parte da experiência.
 
 ---
 
@@ -24,18 +32,10 @@ Esse modelo simples e poderoso está na origem de sistemas que você provavelmen
 
 Ao final desta atividade, você será capaz de:
 
-1. Explicar as operações `OUT`, `IN` e `RD` de um espaço de tuplas e a diferença entre leitura destrutiva e não-destrutiva.
-2. Identificar o **desacoplamento espacial**: por que produtor e consumidor não precisam se conhecer e como isso é viabilizado pelo espaço compartilhado.
-3. Conectar o modelo de espaço de tuplas às abstrações modernas de mensageria (filas, streams, eventos).
-
----
-
-## Fase pré-atividade
-
-Antes da aula, estude os seguintes materiais:
-
-1. **Leitura (15 min):** [Linda in Context — David Gelernter (1989)](https://dl.acm.org/doi/10.1145/63334.63337) — leia o resumo e a seção 2 ("The Tuple Space").
-2. **Vídeo (12 min):** [What is a Message Queue?](https://www.youtube.com/watch?v=xErwDaOc-Gs) — contexto de onde sistemas de mensageria são usados.
+1. Explicar as operações `write` (OUT), `take` (IN) e `read` (RD) de um espaço de tuplas e a diferença entre leitura destrutiva e não-destrutiva.
+2. Identificar o **desacoplamento espacial** e o **desacoplamento temporal**: por que produtor e consumidor não precisam se conhecer e não precisam estar ativos ao mesmo tempo.
+3. Reconhecer o papel de um **serviço de descoberta** (`reggie`) na coordenação de componentes distribuídos sem endereços fixos.
+4. Conectar o modelo de espaço de tuplas às abstrações modernas de mensageria e registros de serviços (são diferentes, mas tem semelhanças).
 
 ---
 
@@ -43,25 +43,34 @@ Antes da aula, estude os seguintes materiais:
 
 ```
 atividade-espaco-de-tuplas/
-├── docker-compose.yml         ← orquestra os 5 serviços
-├── espaco/
-│   ├── espaco.py              ← o espaço de tuplas (servidor central)
-│   └── Dockerfile
-├── produtor/
-│   ├── produtor.py            ← deposita tarefas com OUT
-│   └── Dockerfile
-├── consumidor-a/
-│   ├── consumidor.py          ← retira tarefas com IN (bloqueante)
-│   └── Dockerfile
-├── consumidor-b/
-│   ├── consumidor.py          ← código idêntico ao consumidor-a
-│   └── Dockerfile
-└── leitor/
-    ├── leitor.py              ← lê resultados com RD (sem remover)
-    └── Dockerfile
+├── docker-compose.yml         ← orquestra os serviços
+├── infra/
+│   ├── reggie/                ← serviço de descoberta Jini
+│   └── javaspaces/            ← servidor do espaço de tuplas (Outrigger)
+├── produtor/                  ← deposita tarefas com write()
+├── consumidor/                ← retira e processa tarefas com take()
+└── monitor/                   ← observa o espaço com read() [Nível 2]
 ```
 
-Observe o `docker-compose.yml`: nenhum dos quatro clientes tem uma referência direta a qualquer outro cliente. Todos se conectam apenas ao serviço `espaco`. Essa topologia reflete diretamente o conceito de desacoplamento espacial.
+### Topologia da rede
+
+```
+         ┌─────────────────────────────────────────┐
+         │              rede-tuplas                │
+         │                                         │
+         │   ┌─────────┐      ┌────────────────┐   │
+         │   │  reggie │◄─────│  javaspaces    │   │
+         │   │ (lookup)│      │  (espaço de    │   │
+         │   └────┬────┘      │   tuplas)      │   │
+         │        │           └───────┬────────┘   │
+         │        │  descoberta       │ write/take  │
+         │   ┌────┴──────────────────┴────────┐    │
+         │   │   produtor      consumidor      │    │
+         │   └────────────────────────────────┘    │
+         └─────────────────────────────────────────┘
+```
+
+Observe a topologia: produtor e consumidor **não têm conexão direta entre si**. Ambos se comunicam exclusivamente com o espaço de tuplas, que descobrem através do `reggie`. Isso é desacoplamento espacial em prática.
 
 ---
 
@@ -73,90 +82,138 @@ Execute:
 docker compose up --build
 ```
 
-Aguarde todos os serviços iniciarem. Você verá logs intercalados de todos os cinco serviços. O servidor `espaco` imprime o estado do espaço após cada operação:
+Aguarde todos os serviços iniciarem. O `reggie` inicia primeiro; o `javaspaces` se registra nele; somente então o produtor e o consumidor se conectam.
+
+Você verá logs intercalados de todos os serviços. Exemplo do que esperar:
 
 ```
-espaco-1       | ╔══════════════════════════════════════════╗
-espaco-1       | ║  [OUT ['tarefa', 'processar', 1]]        ║
-espaco-1       | ╠══════════════════════════════════════════╣
-espaco-1       | ║  ['tarefa', 'processar', 1]              ║
-espaco-1       | ╚══════════════════════════════════════════╝
-produtor-1     | [PRODUTOR] OUT: ['tarefa', 'processar', 1]
-consumidor-a-1 | [CONSUMIDOR-A] IN obteve: ['tarefa', 'processar', 1]
-espaco-1       | ╔══════════════════════════════════════════╗
-espaco-1       | ║  [IN  ['tarefa', 'processar', 1]]        ║
-espaco-1       | ╠══════════════════════════════════════════╣
-espaco-1       | ║  (espaço vazio)                          ║
-espaco-1       | ╚══════════════════════════════════════════╝
+reggie-1     | [REGGIE] HTTP codebase server iniciado na porta 8080.
+reggie-1     | INFO: started Reggie: ..., [rede-tuplas], ...
+javaspaces-1 | [JAVASPACES] HTTP codebase server iniciado na porta 8080.
+javaspaces-1 | INFO: Outrigger server started: ...
+consumidor-1 | [CONSUMIDOR] Aguardando espaço... (1/20)
+produtor-1   | [PRODUTOR] Aguardando espaço... (1/20)
+consumidor-1 | [CONSUMIDOR] Espaço encontrado. Aguardando tarefas...
+produtor-1   | [PRODUTOR] Espaço encontrado via lookup.
+produtor-1   | [PRODUTOR] write: TaskEntry{id=1, tipo="calcular", prioridade=2}
+consumidor-1 | [CONSUMIDOR] take: TaskEntry{id=1, tipo="calcular", prioridade=2}
+produtor-1   | [PRODUTOR] write: TaskEntry{id=2, tipo="calcular", prioridade=1}
+consumidor-1 | [CONSUMIDOR] Processamento concluído: tarefa 1
+consumidor-1 | [CONSUMIDOR] take: TaskEntry{id=2, tipo="calcular", prioridade=1}
+produtor-1   | [PRODUTOR] Todas as tarefas depositadas. Encerrando.
 ```
+
+> **Nota:** Os logs do `reggie` e do `javaspaces` incluem mensagens de INFO em inglês do próprio framework — isso é normal. Foque nas linhas prefixadas com `[PRODUTOR]` e `[CONSUMIDOR]`.
 
 **Observe e responda (anote no relatório):**
 
-1. O produtor menciona o nome de algum consumidor em algum momento? O consumidor menciona o nome do produtor?
-2. Quando duas tarefas estão no espaço ao mesmo tempo, o que os dois consumidores fazem? Cada tarefa é processada por um ou por dois consumidores?
-3. O `leitor` também consome as tarefas junto com os consumidores? Por que não?
+1. Qual serviço aparece nos logs primeiro? Por que ele precisa existir antes dos outros?
+2. O produtor menciona o nome ou o endereço do consumidor em algum momento? O consumidor menciona o produtor?
+3. O consumidor começa a processar tarefas antes que o produtor termine de depositar todas? O que isso diz sobre como os dois se coordenam?
 
 Encerre com `Ctrl+C`.
 
 ---
 
-## Nível 1 — Inspecionar
+## Nível 0 — Experimento de desacoplamento temporal
 
-Abra e leia os arquivos `espaco/espaco.py`, `produtor/produtor.py` e `consumidor-a/consumidor.py`.
+Antes de passar ao Nível 1, faça este experimento:
+
+**Passo 1:** Inicie apenas o espaço de tuplas (sem consumidor):
+```bash
+docker compose up reggie javaspaces produtor
+```
+Aguarde o produtor terminar de depositar todas as tarefas e encerrar. Encerre com `Ctrl+C`.
+
+**Passo 2:** Agora inicie apenas o consumidor:
+```bash
+docker compose up consumidor
+```
+
+**Observe e responda:**
+
+4. O consumidor encontrou as tarefas mesmo sendo iniciado depois que o produtor já havia encerrado? O que isso demonstra?
+5. Em comunicação direta via socket (como você viu em atividades anteriores), seria possível esse comportamento? Por quê?
+
+---
+
+## Nível 1 — Inspecionar
 
 ### 1.1 As três operações
 
-O espaço de tuplas expõe três operações. Preencha a tabela no relatório para cada uma:
+O espaço de tuplas expõe três operações. Preencha a tabela no relatório para cada uma, baseando-se no que você observou nos logs:
 
-| Operação | O que ela faz? | Bloqueia quando não encontra correspondência? | Altera o estado do espaço? |
-|----------|----------------|----------------------------------------------|---------------------------|
-| `OUT` | | | |
-| `IN`  | | | |
-| `RD`  | | | |
+| Operação River | Equivalente Linda | O que ela faz? | Bloqueia quando não encontra correspondência? | Altera o estado do espaço? |
+|---------------|-------------------|----------------|----------------------------------------------|---------------------------|
+| `write(entry)` | `OUT` | | | |
+| `take(template)` | `IN` | | | |
+| `read(template)` | `RD` | | | |
 
-### 1.2 Mecanismo de bloqueio
+### 1.2 O papel do `reggie`
 
-Localize no código de `espaco.py` a estrutura que faz `IN` e `RD` aguardarem quando não há tupla correspondente. Responda:
+O `reggie` é o serviço de descoberta Jini. Ele resolve um problema fundamental: como o produtor encontra o espaço de tuplas sem ter o endereço IP dele fixo no código?
 
-- Qual classe do módulo `threading` é usada?
-- O que o método `.wait()` faz nesse contexto?
-- O que o método `.notify_all()` faz, e quem o chama?
-
-### 1.3 Casamento de padrões (*pattern matching*)
-
-O consumidor chama `IN` com o padrão `["tarefa", "processar", None]`. Localize a função `_casa` em `espaco.py` e explique:
-
-- O que `None` significa dentro de um padrão?
-- Esse padrão casaria com a tupla `["tarefa", "processar", 7]`? E com `["tarefa", "entregar", 3]`? Por quê?
-
-### 1.4 Desacoplamento espacial
-
-- O produtor tem alguma variável que aponta para um consumidor? Os consumidores têm alguma variável que aponta para o produtor?
-- Como eles se coordenam, então?
-
-### 1.5 Experimentos dirigidos
-
-**Experimento 1 — Remover um consumidor:**
-
-No arquivo `docker-compose.yml`, comente o bloco inteiro do serviço `consumidor-b` (adicione `#` antes de cada linha do bloco). Salve e execute novamente:
+**Experimento:** Inicie todos os serviços normalmente. Depois, em outro terminal, pare o `reggie`:
 
 ```bash
-docker compose up --build
+docker compose stop reggie
 ```
 
-As cinco tarefas ainda são processadas? Alguma tarefa se perde? O que isso diz sobre o papel do espaço de tuplas?
-
-**Experimento 2 — Produtor rápido, consumidor lento:**
-
-No `produtor/produtor.py`, mude `time.sleep(1)` para `time.sleep(0)`. No `consumidor-a/consumidor.py`, mude `time.sleep(0.5)` para `time.sleep(2)`. Execute:
+Observe o que acontece com os serviços que já estão rodando. Depois reinicie:
 
 ```bash
-docker compose up --build
+docker compose start reggie
 ```
 
-Observe o estado do espaço enquanto o produtor publica todas as tarefas. Descreva o que acontece.
+**Responda:**
 
-Restaure os valores originais antes de continuar.
+1. Quando o `reggie` caiu, os serviços que já estavam conectados ao espaço continuaram funcionando? Por quê?
+2. O que aconteceria com um produtor ou consumidor que tentasse iniciar enquanto o `reggie` estivesse fora do ar?
+3. Qual sistema moderno cumpre papel equivalente ao `reggie` em uma arquitetura de microsserviços? (Dica: pense em Consul ou Kubernetes.)
+
+### 1.3 Desacoplamento espacial nos logs
+
+Releia os logs do Nível 0 com atenção.
+
+**Responda:**
+
+1. O produtor tem qualquer informação sobre quantos consumidores existem?
+2. O consumidor tem qualquer informação sobre quem produziu a tarefa que ele retirou?
+3. Como produtor e consumidor se coordenam, então, se não se conhecem?
+
+### 1.4 Comportamento de bloqueio
+
+**Experimento:** Inicie o consumidor **antes** do produtor:
+
+```bash
+docker compose up reggie javaspaces consumidor
+```
+
+Espere 10 segundos observando os logs. Depois, em outro terminal:
+
+```bash
+docker compose up produtor
+```
+
+**Responda:**
+
+1. O que o consumidor fez enquanto o espaço estava vazio?
+2. Quando o produtor depositou a primeira tarefa, o que aconteceu imediatamente?
+3. Esse comportamento tem nome no modelo Linda. Qual é e por que ele é útil em sistemas distribuídos reais?
+
+### 1.5 Escalabilidade horizontal
+
+**Experimento:** Execute com dois consumidores simultâneos:
+
+```bash
+docker compose up --scale consumidor=2
+```
+
+**Responda:**
+
+1. Uma mesma tarefa foi processada por dois consumidores ao mesmo tempo? Ou cada tarefa foi processada por exatamente um consumidor?
+2. O produtor precisou ser modificado para suportar dois consumidores?
+3. Esse comportamento — adicionar consumidores sem alterar o produtor — tem um nome em arquitetura de sistemas. Qual é?
 
 ---
 
@@ -164,67 +221,63 @@ Restaure os valores originais antes de continuar.
 
 ### Modificação A — Prioridade de tarefas (guiada)
 
-Neste exercício, você vai adicionar um campo de **prioridade** às tarefas sem alterar a lógica dos consumidores existentes — apenas acrescentando um campo a mais nas tuplas.
+O arquivo `produtor/tarefas.json` contém a lista de tarefas com seus campos, incluindo `prioridade`. Atualmente o consumidor retira qualquer tarefa disponível, independente da prioridade.
 
-**No `produtor/produtor.py`**, substitua a lista `TAREFAS` por:
+Abra `consumidor/config.properties` e altere o valor:
 
-```python
-TAREFAS = [
-    ["tarefa", "processar", 1, 2],  # prioridade baixa
-    ["tarefa", "processar", 2, 1],  # prioridade alta
-    ["tarefa", "processar", 3, 2],  # prioridade baixa
-    ["tarefa", "processar", 4, 1],  # prioridade alta
-    ["tarefa", "processar", 5, 1],  # prioridade alta
-]
+```properties
+# Altere de: false
+# Para: true
+buscar_alta_prioridade_primeiro=true
 ```
 
-**No `consumidor-a/consumidor.py` e `consumidor-b/consumidor.py`**, modifique a função `main` para que o consumidor tente buscar primeiro uma tarefa de alta prioridade (`prioridade = 1`). Se não encontrar em até 1 segundo, busca qualquer tarefa:
+Execute novamente:
 
-```python
-# dica: você precisará de duas chamadas IN com padrões diferentes
-# e de uma forma de tentar uma antes da outra
-# o espaço de tuplas não tem timeout nativo — como você resolve isso?
+```bash
+docker compose up --build
 ```
 
-Execute e verifique nos logs se as tarefas de alta prioridade (ids 2, 4, 5) foram processadas antes das de baixa prioridade (ids 1, 3).
+**Observe e responda:**
+
+1. As tarefas de prioridade alta (valor `1`) foram processadas antes das de prioridade baixa (valor `2`)?
+2. O produtor precisou ser modificado para que isso funcionasse?
+3. Como o consumidor consegue selecionar apenas tarefas de uma prioridade específica sem ver todas as tarefas no espaço? Qual mecanismo do espaço de tuplas torna isso possível?
 
 ### Modificação B — Serviço monitor (aberta)
 
-Sem modificar o produtor nem os consumidores, adicione um novo serviço `monitor` que, a cada 2 segundos, exibe quantas tarefas estão pendentes no espaço e quantos resultados já foram produzidos.
+Sem modificar o produtor nem o consumidor, adicione um serviço `monitor` que a cada 3 segundos exibe quantas tarefas pendentes existem no espaço.
 
-Você precisará criar:
+O arquivo `monitor/Monitor.java` está parcialmente implementado. Localize o comentário:
 
-- `monitor/monitor.py`
-- `monitor/Dockerfile`
-- Adicionar o serviço `monitor` no `docker-compose.yml`
+```java
+// TODO: use read() ou take() aqui — qual você deve usar e por quê?
+```
 
-**Dica de design:** Por que você deve usar `RD` e não `IN` no monitor? O que aconteceria se o monitor usasse `IN`?
+Preencha a lacuna com a operação correta e adicione o serviço no `docker-compose.yml`:
 
-**Desafio:** O protocolo Linda não tem uma operação `COUNT`. Como você contaria o número de tuplas que casam com um padrão usando apenas `RD`? (Discuta essa limitação no relatório — ela é real e é um dos motivos pelos quais sistemas modernos como Redis expõem operações como `LLEN`.)
+```yaml
+monitor:
+  build: ./monitor
+  depends_on:
+    - javaspaces
+  networks:
+    - rede-tuplas
+```
 
----
+Execute e verifique se o monitor exibe contagens sem interferir no processamento das tarefas.
 
-## Da Linda aos sistemas modernos
+**Responda no relatório:**
 
-O modelo que você implementou nesta atividade — processos que se coordenam através de um espaço compartilhado sem se conhecerem diretamente — é o fundamento de toda a mensageria moderna:
-
-| Conceito no espaço de tuplas | Equivalente moderno |
-|------------------------------|---------------------|
-| `OUT(tupla)` | Publish / Produce (RabbitMQ, Kafka) |
-| `IN(padrão)` | Consume with ack — mensagem é removida da fila |
-| `RD(padrão)` | Peek / Subscribe — mensagem permanece no tópico |
-| Espaço compartilhado | Broker (RabbitMQ exchange, Kafka topic) |
-| Padrão de casamento | Routing key, topic filter, consumer group |
-| Bloqueio em `IN` | Long-polling, push-based delivery |
-
-A principal diferença entre o espaço de tuplas da Linda e um broker moderno é **escala e persistência**: brokers como Kafka armazenam mensagens em disco, replicam entre servidores, e atendem milhões de mensagens por segundo. O modelo conceitual, porém, é o mesmo que você acabou de implementar com ~120 linhas de Python.
+1. Qual operação você usou no monitor — `read()` ou `take()`? Por quê a outra seria problemática?
+2. O Apache River não tem uma operação `count()`. Como você contou as tarefas pendentes usando apenas `read()`? Que limitação isso revela?
+3. Sistemas modernos como Redis expõem `LLEN` (contagem de fila). Por que um espaço de tuplas puro não tem essa operação? O que seria necessário adicionar ao modelo para suportá-la?
 
 ---
 
 ## Entregável
 
 1. Faça um *fork* (ou clone) deste repositório.
-2. Complete os Níveis 1 e 2, incluindo as modificações nos arquivos de código.
+2. Complete os Níveis 1 e 2, incluindo as modificações nos arquivos indicados.
 3. Preencha o `relatorio-template.md` com suas respostas.
 4. Envie o link do repositório com seus commits (ou o arquivo `.zip` do projeto com o relatório preenchido), conforme orientação do professor.
 
