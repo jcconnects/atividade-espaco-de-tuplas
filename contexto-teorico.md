@@ -109,7 +109,7 @@ Apache River não é um processo único. Para funcionar, ele requer pelo menos d
 1. **`reggie`** — o daemon de descoberta Jini. Precisa iniciar antes de qualquer outro serviço.
 2. **Servidor JavaSpace (Outrigger)** — o espaço de tuplas em si. Registra-se no `reggie` ao iniciar.
 
-Clientes (produtor, consumidor) descobrem o espaço através do `reggie`. Toda essa orquestra de serviços, com dependências de inicialização e uma rede compartilhada, é exatamente o problema que Docker Compose resolve. Não é possível executar essa pilha de forma reproduzível com uma instalação simples.
+Clientes (produtor, consumidor) descobrem o espaço através do `reggie`. Toda essa orquestração de serviços, com dependências de inicialização e uma rede compartilhada, é exatamente o problema que Docker Compose resolve. Não é possível executar essa pilha de forma reproduzível com uma instalação simples.
 
 ---
 
